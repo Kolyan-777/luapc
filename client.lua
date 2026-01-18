@@ -4,13 +4,13 @@ local event = require("event")
 local term = require("term")
 local computer = require("computer")
 local gpu = component.gpu
-local modem = component.modem
 local unicode = require("unicode")
 
 local PORT = 4242
-local SERVER_ADDR = "адрес_сервера" -- укажи тут адрес компа сервера
 
--- Игрок
+modem = component.modem
+modem.open(PORT)
+
 local NICK = "Player1"
 local PLAYER_COLOR = 0x0000FF
 local FIELD_WIDTH = 60
@@ -18,20 +18,20 @@ local FIELD_HEIGHT = 22
 local CHAT_HEIGHT = 6
 local MAX_CHAT_MESSAGES = 7
 
-modem.open(PORT)
-
 local playerID = nil
-local players = {}  -- id -> player
+local players = {}
 local chat = {}
 local chatMode = false
 local chatBuffer = ""
 local MOVE_DELAY = 0.1
 local lastMove = 0
 
--- Отправка join
-modem.send(SERVER_ADDR, PORT, "join", NICK, PLAYER_COLOR)
+gpu.setResolution(gpu.maxResolution())
 
--- Вспомогательные функции
+-- отправка join
+modem.broadcast(PORT,"join",NICK,PLAYER_COLOR)
+
+-- функции отрисовки
 local function drawBorder()
   gpu.setForeground(0xFFFFFF)
   for x=0,FIELD_WIDTH+1 do
@@ -48,22 +48,22 @@ local function drawSquare(px,py,size,color)
   gpu.setForeground(color)
   for dx=0,size-1 do
     for dy=0,size-1 do
-      gpu.set(px+dx+1, py+dy+1, "█")
+      gpu.set(px+dx+1,py+dy+1,"█")
     end
   end
 end
 
 local function drawNick(px,py,nick,color)
   gpu.setForeground(color)
-  gpu.set(px+1,py,""..nick)
+  gpu.set(px+1,py,nick)
 end
 
 local function drawChat()
   gpu.setForeground(0xFFFFFF)
   gpu.fill(1, FIELD_HEIGHT+3, FIELD_WIDTH+2, CHAT_HEIGHT, " ")
-  local line = 0
+  local line=0
   for i=1,#chat do
-    local msg = chat[i]
+    local msg=chat[i]
     gpu.setForeground(msg.color)
     gpu.set(2, FIELD_HEIGHT+3+line, msg.nick..":")
     gpu.setForeground(0xFFFFFF)
@@ -87,21 +87,21 @@ local function redraw()
 end
 
 local function sendMove(nx,ny)
-  modem.send(SERVER_ADDR, PORT, "move", playerID, nx, ny)
+  modem.broadcast(PORT,"move",playerID,nx,ny)
 end
 
 local function sendChat(text)
-  modem.send(SERVER_ADDR, PORT, "chat", NICK, PLAYER_COLOR, text)
+  modem.broadcast(PORT,"chat",NICK,PLAYER_COLOR,text)
 end
 
--- Главный цикл
+-- главный цикл
 redraw()
 while true do
-  local e = {event.pull(0.05)}
+  local e={event.pull(0.05)}
   if e[1]=="modem_message" then
     local _,_,_,_,mtype,a,b,c,d,e2,f=table.unpack(e)
     if mtype=="join_ack" then
-      playerID = a
+      playerID=a
     elseif mtype=="state" then
       local id,nick,x,y,size,color=a,b,c,d,e2,f
       players[id]={id=id,nick=nick,x=x,y=y,size=size,color=color}
@@ -116,6 +116,7 @@ while true do
   elseif e[1]=="key_down" then
     local key = e[4]
     local char = e[3]
+
     if chatMode then
       if key==28 then
         if unicode.len(chatBuffer)>0 then
@@ -128,7 +129,7 @@ while true do
         chatBuffer=unicode.sub(chatBuffer,1,-2)
         redraw()
       elseif char and char>0 then
-        chatBuffer = chatBuffer..unicode.char(char)
+        chatBuffer=chatBuffer..unicode.char(char)
         redraw()
       end
     else
@@ -137,30 +138,5 @@ while true do
         chatMode=true
         redraw()
       else
-        if playerID then
-          local p = players[playerID]
-          if p then
-            local nx,ny=p.x,p.y
-            local now=computer.uptime()
-            if now-lastMove>=MOVE_DELAY then
-              if key==17 then ny=ny-1 end
-              if key==31 then ny=ny+1 end
-              if key==30 then nx=nx-1 end
-              if key==32 then nx=nx+1 end
-              if nx>=1 and ny>=1 and nx+p.size-1<=FIELD_WIDTH and ny+p.size-1<=FIELD_HEIGHT then
-                p.x=nx p.y=ny
-                lastMove=now
-                sendMove(nx,ny)
-                redraw()
-              end
-            end
-          end
-        end
-      end
-    end
-  end
-end
-
-term.clear()
-gpu.setForeground(0xFFFFFF)
-gpu.setBackground(0x000000)
+        if playerID and players[playerID] then
+          local p = pl
