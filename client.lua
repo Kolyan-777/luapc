@@ -7,10 +7,10 @@ local gpu = component.gpu
 local unicode = require("unicode")
 
 local PORT = 4242
-
 modem = component.modem
 modem.open(PORT)
 
+-- настройки игрока и поля
 local NICK = "Player1"
 local PLAYER_COLOR = 0x0000FF
 local FIELD_WIDTH = 60
@@ -18,6 +18,7 @@ local FIELD_HEIGHT = 22
 local CHAT_HEIGHT = 6
 local MAX_CHAT_MESSAGES = 7
 
+-- состояние
 local playerID = nil
 local players = {}
 local chat = {}
@@ -80,7 +81,7 @@ local function redraw()
   term.clear()
   drawBorder()
   for _,p in pairs(players) do
-    drawNick(p.x,p.y,p.nick,p.color)
+    drawNick(p.x,p.y-1,p.nick,p.color)
     drawSquare(p.x,p.y,p.size,p.color)
   end
   drawChat()
@@ -98,6 +99,7 @@ end
 redraw()
 while true do
   local e={event.pull(0.05)}
+
   if e[1]=="modem_message" then
     local _,_,_,_,mtype,a,b,c,d,e2,f=table.unpack(e)
     if mtype=="join_ack" then
@@ -129,7 +131,7 @@ while true do
         chatBuffer=unicode.sub(chatBuffer,1,-2)
         redraw()
       elseif char and char>0 then
-        chatBuffer=chatBuffer..unicode.char(char)
+        chatBuffer = chatBuffer..unicode.char(char)
         redraw()
       end
     else
@@ -139,4 +141,28 @@ while true do
         redraw()
       else
         if playerID and players[playerID] then
-          local p = pl
+          local p = players[playerID]
+          local nx,ny = p.x,p.y
+          local now = computer.uptime()
+          if now-lastMove>=MOVE_DELAY then
+            if key==17 then ny=ny-1 end
+            if key==31 then ny=ny+1 end
+            if key==30 then nx=nx-1 end
+            if key==32 then nx=nx+1 end
+            if nx>=1 and ny>=1 and nx+p.size-1<=FIELD_WIDTH and ny+p.size-1<=FIELD_HEIGHT then
+              p.x=nx p.y=ny
+              lastMove=now
+              sendMove(nx,ny)
+              redraw()
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+-- выход
+term.clear()
+gpu.setForeground(0xFFFFFF)
+gpu.setBackground(0x000000)
