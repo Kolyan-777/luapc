@@ -23,14 +23,27 @@ while true do
   if e[1] == "modem_message" then
     local _, sender, _, _, mtype, a,b,c,d,e2,f = table.unpack(e)
 
-    if mtype == "join" then
-      local nick,color = a,b
-      local id = tostring(math.random(1,99999999))
-      local x = math.random(1, FIELD_WIDTH-1)
-      local y = math.random(1, FIELD_HEIGHT-1)
-      players[id] = {nick=nick,x=x,y=y,size=2,color=color}
-      modem.broadcast(PORT,"join_ack",id)
-      print(nick.." присоединился как "..id)
+if mtype == "join" then
+    local nick,color = a,b
+    local id = tostring(math.random(1,99999999))
+    local x = math.random(1, FIELD_WIDTH-1)
+    local y = math.random(1, FIELD_HEIGHT-1)
+    players[id] = {nick=nick,x=x,y=y,size=2,color=color}
+
+    -- отправляем игроку его id напрямую
+    modem.send(sender, PORT, "join_ack", id)
+
+    -- отправляем новому игроку все текущие состояния и чат
+    for pid,p in pairs(players) do
+        modem.send(sender, PORT, "state", pid,p.nick,p.x,p.y,p.size,p.color)
+    end
+    for _,msg in ipairs(chat) do
+        modem.send(sender, PORT, "chat", msg.nick,msg.color,msg.text)
+    end
+
+    print(nick.." присоединился как "..id)
+end
+
 
     elseif mtype == "move" then
       local id,nx,ny = a,b,c
