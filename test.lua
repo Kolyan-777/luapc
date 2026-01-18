@@ -4,6 +4,7 @@ local term = require("term")
 local computer = require("computer")
 local gpu = component.gpu
 local modem = component.modem
+local unicode = require("unicode")
 
 -------------------------------------------------
 -- НАСТРОЙКИ
@@ -24,13 +25,13 @@ local COLORS = {
 
 local PORT = 4242
 
--- размеры поля
-local FIELD_WIDTH  = 40
-local FIELD_HEIGHT = 16
+-- увеличенное поле
+local FIELD_WIDTH  = 60
+local FIELD_HEIGHT = 22
 
--- высота чата
+-- чат
 local CHAT_HEIGHT = 6
-local MAX_CHAT_LINES = CHAT_HEIGHT - 1
+local MAX_CHAT_MESSAGES = 7
 
 -------------------------------------------------
 
@@ -40,14 +41,12 @@ term.clear()
 
 local screenW, screenH = gpu.getResolution()
 
--- координаты поля
 local fieldX = math.floor((screenW - FIELD_WIDTH) / 2)
 local fieldY = 1
-
 local chatY = FIELD_HEIGHT + 3
 
 -------------------------------------------------
--- ИГРОВЫЕ ДАННЫЕ
+-- ДАННЫЕ
 -------------------------------------------------
 
 local player = {
@@ -63,11 +62,12 @@ local chat = {}
 
 local MOVE_DELAY = 0.1
 local lastMove = 0
+
 local chatMode = false
 local chatBuffer = ""
 
 -------------------------------------------------
--- ВСПОМОГАТЕЛЬНОЕ
+-- ЛОГИКА
 -------------------------------------------------
 
 local function rectsIntersect(a, b)
@@ -123,15 +123,13 @@ local function drawChat()
   gpu.setForeground(0xFFFFFF)
   gpu.fill(1, chatY, screenW, CHAT_HEIGHT, " ")
 
-  local start = math.max(1, #chat - MAX_CHAT_LINES + 1)
   local line = 0
-
-  for i = start, #chat do
+  for i = 1, #chat do
     local msg = chat[i]
     gpu.setForeground(msg.color)
     gpu.set(2, chatY + line, msg.nick .. ":")
     gpu.setForeground(0xFFFFFF)
-    gpu.set(2 + #msg.nick + 2, chatY + line, msg.text)
+    gpu.set(2 + unicode.len(msg.nick) + 2, chatY + line, msg.text)
     line = line + 1
   end
 
@@ -165,9 +163,15 @@ local function broadcastState()
     player.nick, player.x, player.y, player.size, player.color)
 end
 
+local function addChatMessage(nick, color, text)
+  if #chat >= MAX_CHAT_MESSAGES then
+    table.remove(chat, 1)
+  end
+  table.insert(chat, {nick = nick, color = color, text = text})
+end
+
 local function broadcastChat(text)
-  modem.broadcast(PORT, "chat",
-    player.nick, player.color, text)
+  modem.broadcast(PORT, "chat", player.nick, player.color, text)
 end
 
 -------------------------------------------------
@@ -184,18 +188,20 @@ while true do
 
     if chatMode then
       if key == 28 then -- Enter
-        if #chatBuffer > 0 then
-          table.insert(chat, {nick = player.nick, color = player.color, text = chatBuffer})
+        if unicode.len(chatBuffer) > 0 then
+          addChatMessage(player.nick, player.color, chatBuffer)
           broadcastChat(chatBuffer)
         end
         chatBuffer = ""
         chatMode = false
         redraw()
+
       elseif key == 14 then -- Backspace
-        chatBuffer = chatBuffer:sub(1, -2)
+        chatBuffer = unicode.sub(chatBuffer, 1, -2)
         redraw()
-      elseif char and char >= 32 and char <= 126 then
-        chatBuffer = chatBuffer .. string.char(char)
+
+      elseif type(char) == "string" then
+        chatBuffer = chatBuffer .. char
         redraw()
       end
 
@@ -242,7 +248,7 @@ while true do
 
     elseif mtype == "chat" then
       local nick, color, text = a, b, c
-      table.insert(chat, {nick = nick, color = color, text = text})
+      addChatMessage(nick, color, text)
       redraw()
     end
   end
