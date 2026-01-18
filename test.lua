@@ -25,7 +25,7 @@ local COLORS = {
 
 local PORT = 4242
 
--- увеличенное поле
+-- игровое поле
 local FIELD_WIDTH  = 60
 local FIELD_HEIGHT = 22
 
@@ -175,6 +175,8 @@ local function broadcastChat(text)
 end
 
 -------------------------------------------------
+-- ИГРА
+-------------------------------------------------
 
 redraw()
 broadcastState()
@@ -200,8 +202,8 @@ while true do
         chatBuffer = unicode.sub(chatBuffer, 1, -2)
         redraw()
 
-      elseif type(char) == "string" then
-        chatBuffer = chatBuffer .. char
+      elseif char and char > 0 then
+        chatBuffer = chatBuffer .. unicode.char(char)
         redraw()
       end
 
