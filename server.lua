@@ -42,7 +42,6 @@ if mtype == "join" then
     end
 
     print(nick.." присоединился как "..id)
-end
 
 
     elseif mtype == "move" then
