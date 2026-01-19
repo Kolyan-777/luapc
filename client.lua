@@ -4,12 +4,11 @@ local computer = require("computer")
 local event = require("event")
 local term = require("term")
 local keyboard = require("keyboard")
-local serialization = require("serialization")
 
 local gpu = component.gpu
 local modem = component.modem
 
--- Проверка компонентов
+-- === ПРОВЕРКИ ===
 if not gpu then error("Видеокарта не найдена") end
 if not modem then error("Модем не найден") end
 
@@ -28,12 +27,11 @@ local me = {
 local otherPlayers = {} 
 local chatHistory = {}
 local inputText = ""
-local isTyping = false -- Режим чата (включается по T)
+local isTyping = false 
 local running = true
 
 -- === ФУНКЦИИ ===
 
--- Настройка экрана
 local function initScreen()
   w, h = gpu.getResolution()
   if w < 80 then
@@ -42,43 +40,28 @@ local function initScreen()
   end
 end
 
--- Отправка на сервер
 local function send(...)
   if not modem.isOpen(SERVER_PORT) then modem.open(SERVER_PORT) end
   modem.broadcast(SERVER_PORT, ...)
 end
 
--- Добавление в чат (только от сервера или системные)
+-- Безопасное добавление сообщения
 local function addChatMessage(nick, msg)
-  local prefix = nick == "Server" and "[SERVER] " or nick .. ": "
-  table.insert(chatHistory, prefix .. msg)
-  if #chatHistory > 10 then table.remove(chatHistory, 1) end
-end
-
--- Сохранение и восстановление области экрана (для буферизации)
--- Это устраняет мерцание, рисуя все в памяти, а потом выводя разом
-local buffer = {}
-local function saveBuffer()
-  buffer = {}
-  -- Копируем содержимое экрана (по строкам)
-  for y = 1, h do
-    buffer[y] = gpu.get(1, y, w, y)
-  end
-end
-
-local function restoreBuffer()
-  if not buffer or not next(buffer) then return end
-  gpu.setBackground(0x000000)
-  gpu.setForeground(0xFFFFFF)
-  for y = 1, h do
-    if buffer[y] then
-      gpu.set(1, y, buffer[y])
-    end
+  -- Защита от nil значений
+  local safeNick = nick or "Unknown"
+  local safeMsg = msg or ""
+  
+  local prefix = safeNick == "Server" and "[SERVER] " or safeNick .. ": "
+  table.insert(chatHistory, prefix .. safeMsg)
+  
+  -- Храним только последние 12 сообщений
+  if #chatHistory > 12 then
+    table.remove(chatHistory, 1)
   end
 end
 
 local function draw()
-  -- 1. Очистка всего экрана черным цветом
+  -- Очистка
   gpu.setBackground(0x000000)
   gpu.setForeground(0xFFFFFF)
   gpu.fill(1, 1, w, h, " ")
@@ -87,29 +70,23 @@ local function draw()
   local centerX = math.floor(w / 2)
   local centerY = math.floor(gameHeight / 2)
 
-  -- Рисуем границы игровой зоны
-  gpu.setForeground(0x333333) -- Темно-серая рамка
-  gpu.fill(1, 1, w, 1, "░") -- Верх
-  gpu.fill(1, gameHeight, w, 1, "░") -- Низ
+  -- Границы
+  gpu.setForeground(0x333333)
+  gpu.fill(1, 1, w, 1, "░")
+  gpu.fill(1, gameHeight, w, 1, "░")
 
-  -- Преобразование координат
   local function toScreen(wx, wy)
     return centerX + (wx - me.x), centerY + (wy - me.y)
   end
 
-  -- 2. Рисуем других игроков
+  -- Рисуем других игроков
   for addr, p in pairs(otherPlayers) do
-    -- Проверка: есть ли у игрока координаты?
     if p.x and p.y then
       local sx, sy = toScreen(p.x, p.y)
-      
-      -- Рисуем только если в пределах экрана (с небольшим отступом)
       if sx > 1 and sx < w and sy > 1 and sy < gameHeight then
-        -- Тело игрока
         gpu.setForeground(p.color)
         gpu.set(sx, sy, "█")
         
-        -- Ник над игроком (центрирование)
         local nick = p.name or "Unknown"
         local nickX = sx - math.floor(#nick / 2)
         gpu.setForeground(0xFFFFFF)
@@ -118,27 +95,23 @@ local function draw()
     end
   end
 
-  -- 3. Рисуем себя
+  -- Рисуем себя
   gpu.setForeground(me.color)
   gpu.set(centerX, centerY, "@")
-  
-  -- Стрелка "я здесь" снизу
   gpu.setForeground(0x00FF00)
   gpu.set(centerX, centerY + 1, "v")
 
-  -- 4. Зона чата (последние несколько строк)
+  -- Чат
   local chatY = gameHeight + 2
   gpu.setForeground(0xAAAAAA)
   gpu.set(1, chatY - 1, " --- CHAT ---")
   
   for i, msg in ipairs(chatHistory) do
-    -- Обрезаем слишком длинные сообщения, чтобы не вылезали за экран
-    local displayMsg = string.sub(msg, 1, w)
-    gpu.set(1, chatY - 1 + i, displayMsg)
+    gpu.set(1, chatY - 1 + i, string.sub(msg, 1, w))
   end
 
-  -- 5. Строка ввода
-  local statusColor = isTyping and 0x00FF00 or 0xFF0000 -- Зеленый если пишем, красный если играем
+  -- Строка ввода
+  local statusColor = isTyping and 0x00FF00 or 0xFF0000
   gpu.setForeground(statusColor)
   local statusText = isTyping and "[ЧAT]" or "[ИГРА]"
   gpu.set(1, h, statusText .. " > " .. inputText .. (isTyping and "_" or ""))
@@ -151,92 +124,103 @@ send("connect", me.name, me.color)
 local lastMoveTime = 0
 local MOVE_DELAY = 0.1
 
-print("Клиент запущен.")
-print("Управление:")
-print("  WASD - Ходить")
-print("  T   - Написать в чат")
-print("  ENTER - Отправить")
-print("  ESC  - Отменить ввод текста")
-
 while running do
   draw()
   
-  -- Получаем событие
+  -- Получаем событие с небольшим таймаутом, чтобы цикл крутился и рисовал
   local e = { event.pull(0.05) }
   local eventName = e[1]
 
   if eventName == "key_down" then
-    local char, code = e[3], e[4]
+    -- Распаковка: e[1]=name, e[2]=addr, e[3]=char, e[4]=code
+    local char = e[3]
+    local code = e[4]
     
-    -- ОБРАБОТКА ВЫХОДА
+    -- Выход (Ctrl + C)
     if char == 3 and keyboard.isControlDown() then 
       running = false 
     end
 
-    -- ЕСЛИ МЫ В РЕЖИМЕ ЧАТА
+    -- РЕЖИМ ЧАТА
     if isTyping then
-      if code == 28 or code == 156 then -- ENTER -> Отправить
+      if code == 28 or code == 156 then -- Enter
         if inputText ~= "" then
           send("chat", inputText)
           inputText = ""
         end
-        isTyping = false -- Выходим из режима чата после отправки
-      
-      elseif code == 1 then -- ESC -> Отменить
+        isTyping = false -- Выход из чата
+      elseif code == 1 then -- Esc
         inputText = ""
         isTyping = false
-      
       elseif code == 14 then -- Backspace
         inputText = inputText:sub(1, -2)
-      
-      -- Ввод текста (только печатные символы)
       elseif char and char >= 32 and char <= 126 then
         inputText = inputText .. string.char(char)
       end
 
-    -- ЕСЛИ МЫ В РЕЖИМЕ ИГРЫ
+    -- РЕЖИМ ИГРЫ
     else
+      -- Нажатие T включает чат
       if char == string.byte("t") or char == string.byte("T") then
-        isTyping = true -- Включаем режим чата
+        isTyping = true
       
-      -- Обработка движения (WASD)
-      elseif computer.uptime() - lastMoveTime > MOVE_DELAY then
-        local dx, dy = 0, 0
-        if char == string.byte("w") then dy = -1
-        elseif char == string.byte("s") then dy = 1
-        elseif char == string.byte("a") then dx = -1
-        elseif char == string.byte("d") then dx = 1
-        end
-        
-        if dx ~= 0 or dy ~= 0 then
-          me.x = me.x + dx
-          me.y = me.y + dy
-          send("move", dx, dy)
-          lastMoveTime = computer.uptime()
+      -- Обработка WASD
+      else
+        -- Проверка таймера движения
+        if computer.uptime() - lastMoveTime > MOVE_DELAY then
+          local moved = false
+          
+          -- W (код 17) или S (код 31) или A (код 30) или D (код 32)
+          -- Проверяем char (символ) или code (скан-код)
+          if char == string.byte("w") then me.y = me.y - 1; moved = true
+          elseif char == string.byte("s") then me.y = me.y + 1; moved = true
+          elseif char == string.byte("a") then me.x = me.x - 1; moved = true
+          elseif char == string.byte("d") then me.x = me.x + 1; moved = true
+          end
+          
+          if moved then
+            send("move", (char == string.byte("d") and 1 or (char == string.byte("a") and -1 or 0)), 
+                             (char == string.byte("s") and 1 or (char == string.byte("w") and -1 or 0)))
+            lastMoveTime = computer.uptime()
+          end
         end
       end
     end
 
   elseif eventName == "modem_message" then
-    local _, _, _, _, _, msgType, p1, p2, p3, p4, p5 = table.unpack(e)
+    -- e[1]=msg_name, e[2]=localAddr, e[3]=remoteAddr, e[4]=port, e[5]=distance
+    -- e[6]=data1, e[7]=data2, e[8]=data3, e[9]=data4, e[10]=data5
+    
+    local msgType = e[6]
     
     if msgType == "spawn_player" then
-      -- p1=addr, p2=name, p3=color, p4=x, p5=y
-      otherPlayers[p1] = { name = p2, color = p3, x = p4, y = p5 }
-      if p1 ~= modem.address then -- Не пишем "вошел" про самого себя
-        addChatMessage("Server", p2 .. " вошел в игру.")
+      local addr = e[7]
+      local name = e[8]
+      local color = e[9]
+      local x = e[10]
+      local y = e[11]
+      
+      if addr and x and y then
+        otherPlayers[addr] = { name = name, color = color, x = x, y = y }
+        if addr ~= modem.address then
+          addChatMessage("Server", (name or "Unknown") .. " вошел в игру.")
+        end
       end
-    
+      
     elseif msgType == "update_pos" then
-      -- p1=addr, p2=x, p3=y
-      if otherPlayers[p1] then
-        otherPlayers[p1].x = p2
-        otherPlayers[p1].y = p3
+      local addr = e[7]
+      local x = e[8]
+      local y = e[9]
+      
+      if otherPlayers[addr] then
+        otherPlayers[addr].x = x
+        otherPlayers[addr].y = y
       end
-    
+      
     elseif msgType == "chat" then
-      -- p1=nick, p2=message
-      addChatMessage(p1, p2)
+      local nick = e[7]
+      local msg = e[8]
+      addChatMessage(nick, msg)
     end
   end
 end
