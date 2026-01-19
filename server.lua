@@ -1,3 +1,9 @@
+-- === ИСПРАВЛЕНИЕ: Подключение библиотек ===
+local component = require("component")
+local computer = require("computer")
+local event = require("event")
+-- ==========================================
+
 -- Конфигурация
 local PORT = 1234               -- Порт, на котором будет работать сервер
 local LOG_FILE = "server.log"   -- Имя файла для логов
@@ -8,7 +14,8 @@ local running = true            -- Флаг работы сервера
 
 -- Функция логирования
 local function log(msg)
-  local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+  -- Пробуем получить системное время, если нет - используем uptime
+  local timestamp = os.date("%Y-%m-%d %H:%M:%S") or math.floor(computer.uptime()) .. "s"
   local logLine = string.format("[%s] %s", timestamp, msg)
   print(logLine) -- Вывод в консоль сервера
   
@@ -24,7 +31,7 @@ end
 
 -- Функция отправки данных конкретному игроку
 local function sendTo(address, ...)
-  local modem = component.proxy(component.list("modem")())
+  local modem = component.modem -- Используем component.modem напрямую, так как библиотека уже загружена
   if modem then
     modem.send(address, PORT, ...)
   end
@@ -32,7 +39,7 @@ end
 
 -- Функция рассылки данных ВСЕМ игрокам, кроме (опционально) excludeAddress
 local function broadcast(excludeAddress, ...)
-  local modem = component.proxy(component.list("modem")())
+  local modem = component.modem
   if modem then
     for addr, _ in pairs(players) do
       if addr ~= excludeAddress then
@@ -45,17 +52,15 @@ end
 -- Основной цикл сервера
 local function main()
   -- Проверка наличия модема
-  local modem = component.list("modem")()
+  local modem = component.modem
   if not modem then
     log("КРИТИЧЕСКАЯ ОШИБКА: Модем не найден!")
     return
   end
-  modem = component.proxy(modem)
   
   -- Открытие порта
-  if not modem.open(PORT) then
-    log("КРИТИЧЕСКАЯ ОШИБКА: Не удалось открыть порт " .. PORT)
-    return
+  if not modem.isOpen(PORT) then
+     modem.open(PORT)
   end
   
   log("Сервер запущен на порту " .. PORT)
@@ -63,7 +68,7 @@ local function main()
 
   while running do
     -- Получаем события: "modem_message"
-    local eventData = {computer.pullSignal()}
+    local eventData = {event.pull()}
     local eventName = eventData[1]
     
     if eventName == "modem_message" then
@@ -75,7 +80,7 @@ local function main()
       local port = eventData[4]
       local msgType = eventData[6]
       
-      -- Проверка порта (чтобы фильтровать лишний мусор, если нужно)
+      -- Проверка порта
       if port == PORT then
         -------------------------------------------------
         -- ОБРАБОТКА: Подключение нового игрока
@@ -125,7 +130,6 @@ local function main()
             player.y = player.y + dy
             
             -- Рассылаем ВСЕМ (включая отправителя для синхронизации) новую позицию
-            -- Отправляем: type, address, x, y
             broadcast(nil, "update_pos", remoteAddress, player.x, player.y)
           end
           
